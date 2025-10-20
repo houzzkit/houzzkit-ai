@@ -1,15 +1,15 @@
 {
   "domain": "houzzkit_ai",
   "name": "HOUZZkit AI",
-  "after_dependencies": ["zeroconf", "tag"],
+  "after_dependencies": ["hassio", "zeroconf", "tag", "mcp_server"],
   "codeowners": ["@houzzkit"],
   "config_flow": true,
   "dependencies": ["assist_pipeline", "bluetooth", "intent", "ffmpeg", "http"],
   "dhcp": [{"registered_devices": true}],
-  "documentation": "https://github.com/houzzkit/hass-houzzkit-ai",
+  "documentation": "https://github.com/houzzkit/houzzkit-ai",
   "integration_type": "device",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/houzzkit/hass-houzzkit-ai/issues",
+  "issue_tracker": "https://github.com/houzzkit/houzzkit-ai/issues",
   "loggers": ["aioesphomeapi", "noiseprotocol", "bleak_esphome"],
   "requirements": [
     "aioesphomeapi>=39.0.0",
