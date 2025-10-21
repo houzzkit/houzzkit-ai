@@ -15,6 +15,12 @@ from homeassistant.components.mcp_server.session import Session, SessionManager
 
 from ..const import DOMAIN
 
+try:
+    from mcp.shared.message import SessionMessage  # ha>=2025.10,mcp>=1.14.1
+except (ImportError, ModuleNotFoundError):
+    SessionMessage = None
+
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -181,7 +187,11 @@ class McpTransport:
     async def _handle_outgoing_messages(self):
         """Handle outgoing messages to WebSocket."""
         try:
-            async for message in self._send_reader:
+            async for session_message in self._send_reader:
+                if isinstance(session_message, SessionMessage):
+                    message = session_message.message
+                else:
+                    message = session_message
                 _LOGGER.info("mcp writer: %s", message)
                 await self._current_ws.send_str(message.model_dump_json(by_alias=True, exclude_none=True))
         except Exception as err:
@@ -199,6 +209,8 @@ class McpTransport:
             json_data = msg.json()
             message = types.JSONRPCMessage.model_validate(json_data)
             _LOGGER.debug("mcp reader: %s", message)
+            if SessionMessage:
+                message = SessionMessage(message)
             await self._recv_writer.send(message)
         except Exception as err:
             _LOGGER.error("mcp Invalid message from client: %s", err)
