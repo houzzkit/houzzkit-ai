@@ -6,10 +6,10 @@
   "config_flow": true,
   "dependencies": ["assist_pipeline", "bluetooth", "intent", "ffmpeg", "http"],
   "dhcp": [{"registered_devices": true}],
-  "documentation": "https://github.com/houzzkit/houzzkit-ai",
+  "documentation": "https://github.com/houzzkit/houzzkit-ai-ha",
   "integration_type": "device",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/houzzkit/houzzkit-ai/issues",
+  "issue_tracker": "https://github.com/houzzkit/houzzkit-ai-ha/issues",
   "loggers": ["aioesphomeapi", "noiseprotocol", "bleak_esphome"],
   "requirements": [
     "aioesphomeapi>=39.0.0",

@@ -28,9 +28,9 @@ HOUZZkit AI HA 是 **Home Assistant 的自定义集成**，隶属于「小瑞 Ag
 
 1. 打开 Home Assistant 后台，进入 **HACS 商店**（左侧菜单栏找到「HACS」）；
 
-2. 在 HACS 中切换到「集成（Integrations）」分类，点击右上角搜索框，输入 **HOUZZkit AI HA**；
+2. 在 HACS 中切换到「集成（Integrations）」分类，点击右上角搜索框，输入 **HOUZZkit AI**；
 
-3. 点击搜索结果中的「HOUZZkit AI HA」，选择「安装」，等待安装完成后，**重启 Home Assistant**（必须重启才能生效）。
+3. 点击搜索结果中的「[HOUZZkit AI](https://my.home-assistant.io/redirect/hacs_repository/?category=integration&owner=houzzkit&repository=houzzkit-ai)」，选择「安装」，等待安装完成后，**重启 Home Assistant**（必须重启才能生效）。
 
 ### 备选方案：手动安装（无 HACS 时使用）
 
@@ -46,7 +46,7 @@ HOUZZkit AI HA 是 **Home Assistant 的自定义集成**，隶属于「小瑞 Ag
 
 1. 重启 HA 后，进入 **设置 → 设备与服务 → 集成**；
 
-2. 点击右下角「+ 添加集成」，在搜索框中输入 **HOUZZkit AI** 并选择（注：建议确认 HA 集成搜索栏实际显示名称，若搜索不到可尝试输入完整名称「HOUZZkit AI HA」）；
+2. 点击右下角「+ 添加集成」，在搜索框中输入 **HOUZZkit AI** 并选择；
 
 3. 使用「小瑞 Agent 微信小程序」扫描弹窗中的二维码，即可完成绑定。
 
