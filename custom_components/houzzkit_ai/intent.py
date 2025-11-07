@@ -27,7 +27,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.util.percentage import percentage_to_ordered_list_item
 
 from .houzzkit import get_entities
-from .intent_adjust_attribute import AdjustAttributeNumberIntent
+from .intent_adjust_attribute import AdjustDeviceAttributeIntent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ async def async_setup_intents(hass: HomeAssistant):
     intent.async_register(hass, ClimateSetFanModeIntent())
     intent.async_register(hass, CreateAlarmClockIntent())
     intent.async_register(hass, CreateCountdownAlarmClockIntent())
-    intent.async_register(hass, AdjustAttributeNumberIntent())
+    intent.async_register(hass, AdjustDeviceAttributeIntent())
 
 
 class ClimateSetHvacModeIntent(intent.IntentHandler):

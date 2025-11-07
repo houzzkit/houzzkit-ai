@@ -38,6 +38,7 @@ SUPPORTED_ADJUST_PROPERTIES = [
 @dataclass
 class IntentEntityState:
     name: str
+    success: bool = True
     error: str | None = None
     attrs: dict[str, str | int | float] = field(default_factory=dict)
 
@@ -64,6 +65,7 @@ class ExtIntentResponse(intent.IntentResponse):
         if attrs:
             state.attrs.update(attrs)
         if error:
+            state.success = False
             state.error = f"Failed: {error}"
         
         if entity_id not in self.entity_order:
@@ -391,15 +393,15 @@ def adjust_cover_position(ctx: AdjustmentContext, target: AdjustmentTarget):
     target.attributes["updated_value"] = f"{target_percent}%"
     
     
-class AdjustAttributeNumberIntent(intent.IntentHandler):
-    intent_type = "AdjustAttributeNumber"
+class AdjustDeviceAttributeIntent(intent.IntentHandler):
+    intent_type = "AdjustDeviceAttribute"
     description = "Set or adjust the numerical value of device attribute."
     slot_schema = {
         vol.Required("attribute"): vol.Any(*SUPPORTED_ADJUST_PROPERTIES),
         vol.Required("delta"): intent.non_empty_string,
         vol.Required("domain"): intent.non_empty_string,
-        vol.Optional("names"): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional("areas"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("name"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("area"): cv.string,
         vol.Optional("floor"): cv.string,
         vol.Optional("preferred_area_id"): cv.string,
         vol.Optional("preferred_floor_id"): cv.string,
@@ -414,14 +416,14 @@ class AdjustAttributeNumberIntent(intent.IntentHandler):
         attribute: str = slots.get("attribute", {}).get("value")
         delta_raw: str = slots.get("delta", {}).get("value")
         domain: str = slots.get("domain", {}).get("value")
-        name_list: list[str | None]  = slots.get("names", {}).get("value", [])
-        area_name_list: list[str | None] = slots.get("areas", {}).get("value", [])
+        name_list: list[str | None]  = slots.get("name", {}).get("value", [])
+        area_name: str | None = slots.get("area", {}).get("value")
         floor_name: str | None = slots.get("floor", {}).get("value")
         
         _LOGGER.info(
-            f"AdjustAttributeNumberIntent params: "
+            f"AdjustDeviceAttribute params: "
             f"attribute={attribute} delta={delta_raw} domain={domain} "
-            f"name_list={name_list} area_name_list={area_name_list} floor_name={floor_name}"
+            f"name_list={name_list} area_name={area_name} floor_name={floor_name}"
         )
         
         delta = parse_delta(delta_raw)
@@ -430,74 +432,70 @@ class AdjustAttributeNumberIntent(intent.IntentHandler):
                 f"invalid value: {delta_raw}"
             )
         
-        
-        if len(area_name_list) == 0:
-            area_name_list.append(None)
         if len(name_list) == 0:
             name_list.append(None)
         
         response = ExtIntentResponse(intent_obj.language, intent=intent_obj)
         success_results = []
         
-        for area_name in area_name_list:
-            for name in name_list:
-                match_constraints = intent.MatchTargetsConstraints(
-                    name=name,
-                    area_name=area_name,
-                    floor_name=floor_name,
-                    domains={domain},
-                    assistant=intent_obj.assistant,
-                    single_target=False,
+        for name in name_list:
+            match_constraints = intent.MatchTargetsConstraints(
+                name=name,
+                area_name=area_name,
+                floor_name=floor_name,
+                domains={domain},
+                assistant=intent_obj.assistant,
+                single_target=False,
+            )
+            match_preferences = intent.MatchTargetsPreferences(
+                area_id=slots.get("preferred_area_id", {}).get("value"),
+                floor_id=slots.get("preferred_floor_id", {}).get("value"),
+            )
+            match_result = intent.async_match_targets(
+                hass, match_constraints, match_preferences
+            )
+            if not match_result.is_match:
+                raise intent.MatchFailedError(
+                    result=match_result, constraints=match_constraints
                 )
-                match_preferences = intent.MatchTargetsPreferences(
-                    area_id=slots.get("preferred_area_id", {}).get("value"),
-                    floor_id=slots.get("preferred_floor_id", {}).get("value"),
-                )
-                match_result = intent.async_match_targets(
-                    hass, match_constraints, match_preferences
-                )
-                if not match_result.is_match:
-                    raise intent.MatchFailedError(
-                        result=match_result, constraints=match_constraints
-                    )
-                assert match_result.states
-                for state in match_result.states:
-                    _LOGGER.info(f"AdjustAttributeNumberIntent state: {state.as_dict_json}")
-                    entity_id = state.entity_id
-                    entity_registry = er.async_get(hass)
-                    entity = entity_registry.async_get(entity_id)
-                    if not entity:
-                        continue
+            assert match_result.states
+            for state in match_result.states:
+                _LOGGER.info(f"AdjustDeviceAttribute state: {state.as_dict_json}")
+                entity_id = state.entity_id
+                entity_registry = er.async_get(hass)
+                entity = entity_registry.async_get(entity_id)
+                if not entity:
+                    continue
+                
+                error: str | None = None
+                target = AdjustmentTarget()
+                try:
+                    prepare_adjustment = adjustment_functions.get(domain, {}).get(attribute)
+                    if not prepare_adjustment:
+                        raise intent.IntentHandleError("unspported")
                     
-                    error: str | None = None
-                    target = AdjustmentTarget()
-                    try:
-                        prepare_adjustment = adjustment_functions.get(domain, {}).get(attribute)
-                        if not prepare_adjustment:
-                            raise intent.IntentHandleError("unspported")
-                        
-                        # Find the paramters to adjust.
-                        prepare_adjustment(AdjustmentContext(state=state, delta=delta), target)
-                        target.service_data[ATTR_ENTITY_ID] = state.entity_id
-                        
-                        # Perform adjustment.
-                        _LOGGER.info(f"AdjustAttributeNumberIntent call target: {asdict(target)}")
-                        await hass.services.async_call(
-                            domain,
-                            target.service,
-                            service_data=target.service_data,
-                            blocking=True,
-                            context=intent_obj.context,
-                        )
-                    except intent.IntentHandleError as e:
-                        error = str(e)
-                        
-                    response.set_state(entity, target.attributes, error)
-                    success_results.append(intent.IntentResponseTarget(
-                        type=intent.IntentResponseTargetType.ENTITY,
-                        name=state.name,
-                        id=state.entity_id,
-                    ))
+                    # Find the paramters to adjust.
+                    prepare_adjustment(AdjustmentContext(state=state, delta=delta), target)
+                    target.service_data[ATTR_ENTITY_ID] = state.entity_id
+                    
+                    # Perform adjustment.
+                    _LOGGER.info(f"AdjustDeviceAttribute call target: {asdict(target)}")
+                    await hass.services.async_call(
+                        domain,
+                        target.service,
+                        service_data=target.service_data,
+                        blocking=True,
+                        context=intent_obj.context,
+                    )
+                except intent.IntentHandleError as e:
+                    error = str(e)
+                    
+                response.set_state(entity, target.attributes, error)
+                success_results.append(intent.IntentResponseTarget(
+                    type=intent.IntentResponseTargetType.ENTITY,
+                    name=state.name,
+                    id=state.entity_id,
+                ))
                     
 
         if len(success_results) > 0:
