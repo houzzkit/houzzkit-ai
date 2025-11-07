@@ -162,7 +162,7 @@ class HouzzkitGetLiveContextIntent(intent.IntentHandler):
     )
     slot_schema = {
         vol.Optional("domain"): cv.string,
-        vol.Optional("names"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("name_list"): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional("area"): cv.string,
         vol.Optional("floor"): cv.string,
     } # type: ignore

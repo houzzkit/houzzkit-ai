@@ -9,6 +9,7 @@ from homeassistant.components import fan
 from homeassistant.components import light
 from homeassistant.components import climate
 from homeassistant.components.humidifier.const import ATTR_HUMIDITY, SERVICE_SET_HUMIDITY
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.core import State, callback
 from homeassistant.helpers import config_validation as cv, intent
@@ -400,7 +401,7 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
         vol.Required("attribute"): vol.Any(*SUPPORTED_ADJUST_PROPERTIES),
         vol.Required("delta"): intent.non_empty_string,
         vol.Required("domain"): intent.non_empty_string,
-        vol.Optional("name"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("name_list"): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional("area"): cv.string,
         vol.Optional("floor"): cv.string,
         vol.Optional("preferred_area_id"): cv.string,
@@ -416,7 +417,7 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
         attribute: str = slots.get("attribute", {}).get("value")
         delta_raw: str = slots.get("delta", {}).get("value")
         domain: str = slots.get("domain", {}).get("value")
-        name_list: list[str | None]  = slots.get("name", {}).get("value", [])
+        name_list: list[str | None]  = slots.get("name_list", {}).get("value", [])
         area_name: str | None = slots.get("area", {}).get("value")
         floor_name: str | None = slots.get("floor", {}).get("value")
         
@@ -487,7 +488,7 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
                         blocking=True,
                         context=intent_obj.context,
                     )
-                except intent.IntentHandleError as e:
+                except (intent.IntentHandleError, ServiceValidationError) as e:
                     error = str(e)
                     
                 response.set_state(entity, target.attributes, error)
