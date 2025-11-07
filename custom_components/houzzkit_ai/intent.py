@@ -48,7 +48,7 @@ class ClimateSetHvacModeIntent(intent.IntentHandler):
     description = "Sets the target hvac mode of a climate device or entity"
     slot_schema = {
         vol.Required(ATTR_HVAC_MODE): vol.Any(*HVAC_MODES),
-        vol.Required("domain"): vol.All("climate"),
+        vol.Required("domain"): vol.Any("climate"),
         vol.Optional("area"): intent.non_empty_string,
         vol.Optional("name"): intent.non_empty_string,
         vol.Optional("floor"): intent.non_empty_string,

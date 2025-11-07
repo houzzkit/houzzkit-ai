@@ -161,10 +161,6 @@ class HouzzkitGetLiveContextIntent(intent.IntentHandler):
         "2. As the first step in conditional actions (e.g., 'If there is someone in the bedroom, turn on the bedroom light'), checking if there's anyone present is required."
     )
     slot_schema = {
-        vol.Optional("domain"): cv.string,
-        vol.Optional("name_list"): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional("area"): cv.string,
-        vol.Optional("floor"): cv.string,
     } # type: ignore
 
     async def async_handle(self, intent_obj: intent.Intent) -> JsonObjectType:
