@@ -1,14 +1,13 @@
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 import re
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, get_args
 import voluptuous as vol
 import logging
 from homeassistant.components import cover, humidifier
 from homeassistant.components import fan
 from homeassistant.components import light
 from homeassistant.components import climate
-from homeassistant.components.humidifier.const import ATTR_HUMIDITY, SERVICE_SET_HUMIDITY
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.core import State, callback
@@ -16,15 +15,13 @@ from homeassistant.helpers import config_validation as cv, intent
 from homeassistant.const import (
     ATTR_TEMPERATURE, SERVICE_TURN_ON, Platform, ATTR_ENTITY_ID,
 )
-from homeassistant.components.climate.const import (
-    SERVICE_SET_TEMPERATURE,
-)
 from homeassistant.util.color import RGBColor
+from homeassistant.util.percentage import percentage_to_ordered_list_item
 
 
 _LOGGER = logging.getLogger(__name__)
 
-UnknownCurrentValueError = intent.IntentHandleError("Adjustment is not supported. Try setting it directly to the specified value.")
+UnsupportAdjustmentError = intent.IntentHandleError("Adjustment is not supported. Try setting it directly to the specified value.")
 
 
 @dataclass
@@ -81,8 +78,18 @@ class AdjustType(Enum):
     SET = 0
     DECREASE = -1
 
-DeltaSpecialValue = Literal["min", "max"]
+DeltaSpecialValue = Literal["min", "max", "low", "medium", "high", "auto"]
+DELTA_SPECIAL_VALUES: set[DeltaSpecialValue] = set(get_args(DeltaSpecialValue))
+
 DeltaSupport = Literal["level", "number"]
+
+def parse_level_name(level_name: str, level_count: int):
+    if level_name == 'low':
+        return 1
+    elif level_name == 'medium':
+        return 2
+    elif level_name == 'high':
+        return 3
 
 @dataclass
 class Delta():
@@ -93,7 +100,7 @@ class Delta():
     unit: str = ''
     special: DeltaSpecialValue | None = None
     
-    def calc_target(self, current_value: float | None, level_step: float, min_change: float, min_value, max_value, supports: set[DeltaSupport]) -> int:
+    def calc_target(self, current_value: float | None, level_step: float, min_change: float, min_value: float, max_value: float, supports: set[DeltaSupport]) -> int:
         """Calculate target value (level, percentage or number).
         
         Args:
@@ -109,6 +116,12 @@ class Delta():
                 target_value = min_value
             elif self.special == 'max':
                 target_value = max_value
+            elif self.special == 'low':
+                target_value = min_value
+            elif self.special == 'medium':
+                raise intent.IntentHandleError("unsupported")
+            elif self.special == 'high':
+                target_value = max_value
             return int(max(min_value, min(max_value, target_value)))
         
         if self.unit in ['level', '档']:
@@ -120,7 +133,7 @@ class Delta():
                 target_value = self.value*level_step
             else:
                 if current_value is None:
-                    raise UnknownCurrentValueError
+                    raise UnsupportAdjustmentError
                 
                 # Adjust the current value to the stepped value.
                 left_stepped_value = current_value//level_step*level_step
@@ -140,7 +153,7 @@ class Delta():
             user_target_value = self.value
         else:
             if current_value is None:
-                raise UnknownCurrentValueError
+                raise UnsupportAdjustmentError
             user_target_value = current_value + self.value
             
         if user_target_value == max_value:
@@ -164,7 +177,7 @@ class Delta():
 
 def parse_delta(raw: str):
     """Parse raw value str to readable object."""
-    if raw == 'min' or raw == 'max':
+    if raw in DELTA_SPECIAL_VALUES:
         return Delta(
             adjust=AdjustType.SET,
             special=raw,
@@ -238,6 +251,7 @@ def register_adjustment(domain: str, attrbute: str):
         return wrapper
     return decorator
 
+
 @register_adjustment("light", "brightness")
 def adjust_light_brightness(ctx: AdjustmentContext, target: AdjustmentTarget):
     percentage_step = 10
@@ -250,7 +264,7 @@ def adjust_light_brightness(ctx: AdjustmentContext, target: AdjustmentTarget):
     if ctx.delta.adjust != AdjustType.SET:
         current_brightness = ctx.state.attributes.get(light.ATTR_BRIGHTNESS)
         if current_brightness is None:
-            raise UnknownCurrentValueError
+            raise UnsupportAdjustmentError
         current_percent = round(current_brightness/254*100)
     
     target_percent = ctx.delta.calc_target(current_percent, percentage_step, 1, 1, 100, supports={"number", "level"})
@@ -258,7 +272,7 @@ def adjust_light_brightness(ctx: AdjustmentContext, target: AdjustmentTarget):
     
     target.attributes["updated_brightness"] = f"{target_percent}%"
     target.service = SERVICE_TURN_ON
-    
+
 
 @register_adjustment("light", "color")
 def adjust_light_color(ctx: AdjustmentContext, target: AdjustmentTarget):
@@ -277,7 +291,8 @@ def adjust_light_color(ctx: AdjustmentContext, target: AdjustmentTarget):
     target.service = SERVICE_TURN_ON
     target.service_data[light.ATTR_RGB_COLOR] = target_color
     target.attributes["updated_value"] = f"#{hex_color}"
-    
+
+
 @register_adjustment("light", "temperature")
 def adjust_light_temperature(ctx: AdjustmentContext, target: AdjustmentTarget):
     color_temperature_min = ctx.state.attributes.get(light.ATTR_MIN_COLOR_TEMP_KELVIN, 2000)
@@ -294,14 +309,14 @@ def adjust_light_temperature(ctx: AdjustmentContext, target: AdjustmentTarget):
     if ctx.delta.adjust != AdjustType.SET:
         current_color_temperature: float | None = ctx.state.attributes.get(light.ATTR_COLOR_TEMP_KELVIN)
         if current_color_temperature is None:
-            raise UnknownCurrentValueError
+            raise UnsupportAdjustmentError
         
     target_temperature = ctx.delta.calc_target(current_color_temperature, color_temperature_step, 1, color_temperature_min, color_temperature_max, supports={"number", "level"})
     target.service = SERVICE_TURN_ON
     target.service_data[light.ATTR_COLOR_TEMP_KELVIN] = target_temperature
     target.attributes["updated_value"] = f"{target_temperature}K"
 
-      
+
 @register_adjustment("fan", "fan_speed")
 def adjust_fan_speed(ctx: AdjustmentContext, target: AdjustmentTarget):
     percentage_step = ctx.state.attributes.get(fan.ATTR_PERCENTAGE_STEP, 25)
@@ -316,7 +331,7 @@ def adjust_fan_speed(ctx: AdjustmentContext, target: AdjustmentTarget):
     if ctx.delta.adjust != AdjustType.SET:
         current_percent = ctx.state.attributes.get(fan.ATTR_PERCENTAGE)
         if current_percent is None:
-            raise UnknownCurrentValueError
+            raise UnsupportAdjustmentError
 
     target_percent = ctx.delta.calc_target(current_percent, percentage_step, percentage_step, percentage_step, 100, supports={"number", "level"})
     # Fix 33%*3 case.
@@ -325,6 +340,64 @@ def adjust_fan_speed(ctx: AdjustmentContext, target: AdjustmentTarget):
     target.service = SERVICE_TURN_ON
     target.service_data[fan.ATTR_PERCENTAGE] = target_percent
     target.attributes["updated_level"] = int(target_percent//int(percentage_step))
+
+
+@register_adjustment("climate", "fan_speed")
+def adjust_climate_fan_speed(ctx: AdjustmentContext, target: AdjustmentTarget):
+    fan_modes: list[str] = ctx.state.attributes.get(climate.ATTR_FAN_MODES, [])
+    if len(fan_modes) == 0:
+        raise intent.IntentHandleError("unsupported")
+    
+    target.attributes = {
+        "fan_modes": fan_modes,
+    }
+    
+    if ctx.delta.special and ctx.delta.special in ["auto", "low", "medium", "high"]:
+        target_fan_mode = ctx.delta.special
+        if target_fan_mode in fan_modes:
+            target.service = climate.SERVICE_SET_FAN_MODE
+            target.service_data[climate.ATTR_FAN_MODE] = target_fan_mode
+            target.attributes["fan_mode"] = target_fan_mode
+            return
+        raise intent.IntentHandleError("unsupported the mode")
+    
+    # 档位排除掉自动
+    if fan_modes[0] == "auto":
+        fan_modes = fan_modes[1:]
+    
+    percentage_step = 100//len(fan_modes)
+    target.attributes = {
+        "max_level": len(fan_modes),
+        "adjustment_step": f"{int(percentage_step)}%",
+    }
+    
+    # Percentage or Level
+    current_percent = None
+    if ctx.delta.unit != "%":
+        ctx.delta.unit = "level"
+    if ctx.delta.adjust != AdjustType.SET:
+        current_mode = ctx.state.attributes.get(climate.ATTR_FAN_MODE)
+        if current_mode is None or current_mode == "auto":
+            raise UnsupportAdjustmentError
+        
+        mode_index = fan_modes.index(current_mode)
+        # 33% 66% 99%
+        current_percent = (mode_index+1)*100//len(fan_modes)
+
+    target_percent = ctx.delta.calc_target(current_percent, percentage_step, percentage_step, percentage_step, 100, supports={"number", "level"})
+    # Set fan mode.
+    if target_percent >= 99:
+        target_percent = 100
+    
+    # 50*25/100
+    _LOGGER.info(f"adjust_climate_fan_speed: current_percent={current_percent} target_percent={target_percent}")
+    target_mode_index = min(target_percent//percentage_step-1, len(fan_modes) - 1)
+    target_fan_mode = fan_modes[target_mode_index]
+    target.service = climate.SERVICE_SET_FAN_MODE
+    target.service_data[climate.ATTR_FAN_MODE] = target_fan_mode
+    target.attributes["updated_level"] = target_mode_index
+    target.attributes["fan_mode"] = target_fan_mode
+
 
 @register_adjustment("climate", "temperature")
 def adjust_climate_temperature(ctx: AdjustmentContext, target: AdjustmentTarget):
@@ -343,13 +416,14 @@ def adjust_climate_temperature(ctx: AdjustmentContext, target: AdjustmentTarget)
     if ctx.delta.adjust != AdjustType.SET:
         current_temperature: float | None = ctx.state.attributes.get("temperature")
         if current_temperature is None:
-            raise UnknownCurrentValueError
+            raise UnsupportAdjustmentError
         
     target_temperature = ctx.delta.calc_target(current_temperature, temperature_step, 1, min_temperature, max_temperature, supports={"number"})
-    target.service = SERVICE_SET_TEMPERATURE
+    target.service = climate.SERVICE_SET_TEMPERATURE
     target.service_data[ATTR_TEMPERATURE] = target_temperature
     target.attributes["updated_value"] = target_temperature
-    
+
+
 @register_adjustment("humidifier", "humidity")
 def adjust_humidifier_humidity(ctx: AdjustmentContext, target: AdjustmentTarget):
     min_value = ctx.state.attributes.get(humidifier.ATTR_MIN_HUMIDITY, 0)
@@ -365,13 +439,14 @@ def adjust_humidifier_humidity(ctx: AdjustmentContext, target: AdjustmentTarget)
     if ctx.delta.adjust != AdjustType.SET:
         current_value: float | None = ctx.state.attributes.get(humidifier.ATTR_HUMIDITY)
         if current_value is None or (current_value < min_value):
-            raise UnknownCurrentValueError
+            raise UnsupportAdjustmentError
         
     target_value = ctx.delta.calc_target(current_value, adjustment_step, 1, min_value, max_value, supports={"number", "level"})
-    target.service = SERVICE_SET_HUMIDITY
-    target.service_data[ATTR_HUMIDITY] = target_value
+    target.service = humidifier.SERVICE_SET_HUMIDITY
+    target.service_data[humidifier.ATTR_HUMIDITY] = target_value
     target.attributes["updated_value"] = target_value
     
+
 @register_adjustment("cover", "position")
 def adjust_cover_position(ctx: AdjustmentContext, target: AdjustmentTarget):
     percentage_step = 10
@@ -382,7 +457,7 @@ def adjust_cover_position(ctx: AdjustmentContext, target: AdjustmentTarget):
     if ctx.delta.adjust != AdjustType.SET:
         current_percent = ctx.state.attributes.get(cover.ATTR_CURRENT_POSITION)
         if current_percent is None:
-            raise UnknownCurrentValueError
+            raise UnsupportAdjustmentError
     
     target_percent = ctx.delta.calc_target(current_percent, percentage_step, 1, 0, 100, supports={"number"})
     target.service = cover.SERVICE_SET_COVER_POSITION
