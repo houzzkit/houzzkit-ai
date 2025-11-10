@@ -83,14 +83,6 @@ DELTA_SPECIAL_VALUES: set[DeltaSpecialValue] = set(get_args(DeltaSpecialValue))
 
 DeltaSupport = Literal["level", "number"]
 
-def parse_level_name(level_name: str, level_count: int):
-    if level_name == 'low':
-        return 1
-    elif level_name == 'medium':
-        return 2
-    elif level_name == 'high':
-        return 3
-
 @dataclass
 class Delta():
     adjust: AdjustType
@@ -464,6 +456,16 @@ def adjust_cover_position(ctx: AdjustmentContext, target: AdjustmentTarget):
     target.service_data[cover.ATTR_POSITION] = target_percent
     target.attributes["updated_value"] = f"{target_percent}%"
     
+    
+@register_adjustment("media_player", "volume")
+def adjust_media_player_volume(ctx: AdjustmentContext, target: AdjustmentTarget):
+    raise intent.IntentHandleError("unsupport")
+
+
+@register_adjustment("media_player", "brightness")
+def adjust_media_player_brightness(ctx: AdjustmentContext, target: AdjustmentTarget):
+    raise intent.IntentHandleError("unsupport")
+
     
 class AdjustDeviceAttributeIntent(intent.IntentHandler):
     intent_type = "AdjustDeviceAttribute"
