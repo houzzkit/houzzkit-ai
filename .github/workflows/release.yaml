@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZIP Component Dir
+        run: |
+          cd ${{ github.workspace }}/custom_components
+          domain=$(cat ./*/manifest.json | jq -r .domain)
+          cd $domain
+          zip -r ../$domain.zip ./
+          echo "DOMAIN=$domain" >> $GITHUB_ENV
+
+      - name: Upload zip to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ github.workspace }}/custom_components/${{ env.DOMAIN }}.zip
+          asset_name: ${{ env.DOMAIN }}.zip
+          tag: ${{ github.ref }}
+          overwrite: true
