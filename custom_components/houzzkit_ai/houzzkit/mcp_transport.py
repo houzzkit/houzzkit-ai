@@ -101,7 +101,7 @@ class McpTransport:
             except Exception as err:
                 _LOGGER.warning("mcp websocket disconnected or failed: %s", err)
             if self.should_reconnect:
-                seconds = min(60, self.reconnect_times * 5)
+                seconds = max(min(60, self.reconnect_times * 5), 1)
                 _LOGGER.info("mcp websocket retry after %s seconds", seconds)
                 self.reconnect_times += 1
                 if seconds > 0:
@@ -130,7 +130,6 @@ class McpTransport:
             async with self.session_manager.create(Session(self._recv_writer)) as session_id:
                 await self._establish_websocket_connection(options)
 
-            self.reconnect_times = 0
         except Exception as err:
             _LOGGER.exception("mcp Failed to connect to client WebSocket at %s: %s", self.endpoint, err)
             raise
@@ -146,6 +145,7 @@ class McpTransport:
             try:
                 async with client_session.ws_connect(self.endpoint) as ws:
                     self._current_ws = ws
+                    self.reconnect_times = 0
                     async with anyio.create_task_group() as tg:
                         try:
                             tg.start_soon(self._handle_websocket_messages)
@@ -188,7 +188,7 @@ class McpTransport:
         """Handle outgoing messages to WebSocket."""
         try:
             async for session_message in self._send_reader:
-                if isinstance(session_message, SessionMessage):
+                if SessionMessage is not None and isinstance(session_message, SessionMessage):
                     message = session_message.message
                 else:
                     message = session_message
