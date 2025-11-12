@@ -287,9 +287,15 @@ def adjust_light_color(ctx: AdjustmentContext, target: AdjustmentTarget):
 
 @register_adjustment("light", "temperature")
 def adjust_light_temperature(ctx: AdjustmentContext, target: AdjustmentTarget):
+    
     color_temperature_min = ctx.state.attributes.get(light.ATTR_MIN_COLOR_TEMP_KELVIN, 2000)
     color_temperature_max = ctx.state.attributes.get(light.ATTR_MAX_COLOR_TEMP_KELVIN, 6500)
     color_temperature_step = 500
+    
+    if ctx.delta.unit == "%":
+        # Convert percentage to Kelvin
+        ctx.delta.value = ctx.delta.value/100 * (color_temperature_max - color_temperature_min)
+        ctx.delta.unit = "K"
     
     target.attributes = {
         "min_value": f"{color_temperature_min}K", 
@@ -393,6 +399,12 @@ def adjust_climate_fan_speed(ctx: AdjustmentContext, target: AdjustmentTarget):
 
 @register_adjustment("climate", "temperature")
 def adjust_climate_temperature(ctx: AdjustmentContext, target: AdjustmentTarget):
+    if ctx.delta.unit == "%":
+        raise intent.IntentHandleError("unsupported percentage")
+    
+    if ctx.delta.unit in ["档", "level"]:
+        ctx.delta.unit = "度"
+        
     min_temperature = ctx.state.attributes.get(climate.ATTR_MIN_TEMP, 10)
     max_temperature = ctx.state.attributes.get(climate.ATTR_MAX_TEMP, 30)
     temperature_step = ctx.state.attributes.get(climate.ATTR_TARGET_TEMP_STEP, 1)
@@ -436,7 +448,7 @@ def adjust_humidifier_humidity(ctx: AdjustmentContext, target: AdjustmentTarget)
     target_value = ctx.delta.calc_target(current_value, adjustment_step, 1, min_value, max_value, supports={"number", "level"})
     target.service = humidifier.SERVICE_SET_HUMIDITY
     target.service_data[humidifier.ATTR_HUMIDITY] = target_value
-    target.attributes["updated_value"] = target_value
+    target.attributes["updated_value"] = f"{target_value}%"
     
 
 @register_adjustment("cover", "position")
