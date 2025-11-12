@@ -31,6 +31,8 @@ from .intent_adjust_attribute import AdjustDeviceAttributeIntent
 from .intent_live_context import HouzzkitGetLiveContextIntent
 from .intent_turn import TurnDeviceOnIntent, TurnDeviceOffIntent
 
+from .intent_common import match_intent_entities
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -51,68 +53,48 @@ class ClimateSetHvacModeIntent(intent.IntentHandler):
     slot_schema = {
         vol.Required(ATTR_HVAC_MODE): vol.Any(*HVAC_MODES),
         vol.Required("domain"): vol.Any("climate"),
-        vol.Optional("area"): intent.non_empty_string,
         vol.Optional("name"): intent.non_empty_string,
+        vol.Optional("area"): intent.non_empty_string,
+        vol.Optional("except_area"): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional("floor"): intent.non_empty_string,
         vol.Optional("preferred_area_id"): cv.string,
         vol.Optional("preferred_floor_id"): cv.string,
-    }
+    } # type: ignore
     platforms = {Platform.CLIMATE}
 
     async def async_handle(self, intent_obj: intent.Intent):
         """Handle the intent."""
         hass = intent_obj.hass
         slots = self.async_validate_slots(intent_obj.slots)
-
         mode = slots[ATTR_HVAC_MODE]["value"]
-        name = slots.get("name", {}).get("value")
-        area_name = slots.get("area", {}).get("value")
-        floor_name = slots.get("floor", {}).get("value")
+        
+        error_msg, candidate_entities = await match_intent_entities(intent_obj, slots)
+        if error_msg:
+            return error_msg
+        assert candidate_entities
 
-        match_constraints = intent.MatchTargetsConstraints(
-            name=name,
-            area_name=area_name,
-            floor_name=floor_name,
-            domains=[Platform.CLIMATE],
-            assistant=intent_obj.assistant,
-            single_target=True,
-        )
-        match_preferences = intent.MatchTargetsPreferences(
-            area_id=slots.get("preferred_area_id", {}).get("value"),
-            floor_id=slots.get("preferred_floor_id", {}).get("value"),
-        )
-        match_result = intent.async_match_targets(
-            hass, match_constraints, match_preferences
-        )
-        if not match_result.is_match:
-            raise intent.MatchFailedError(
-                result=match_result, constraints=match_constraints
+        # Execute operation.
+        control_targets = []
+        entity_key_map = set() # for deduplication
+        for item in candidate_entities:
+            _LOGGER.info(f"ClimateSetHvacMode target: area={item.area_name} name={item.name} id={item.entity.id}")
+            await hass.services.async_call(
+                Platform.CLIMATE,
+                SERVICE_SET_HVAC_MODE,
+                target={ATTR_ENTITY_ID: item.state.entity_id},
+                service_data={ATTR_HVAC_MODE: mode},
+                blocking=True,
             )
+            
+            entity_key = f"{item.area_name}-{item.name}"
+            if entity_key not in entity_key_map:
+                entity_key_map.add(entity_key)
+                control_targets.append({"name": item.name, "area": item.area_name})
 
-        assert match_result.states
-        state = match_result.states[0]
-
-        await hass.services.async_call(
-            Platform.CLIMATE,
-            SERVICE_SET_HVAC_MODE,
-            target={ATTR_ENTITY_ID: state.entity_id},
-            service_data={ATTR_HVAC_MODE: mode},
-            blocking=True,
-        )
-
-        response = intent_obj.create_response()
-        response.response_type = intent.IntentResponseType.ACTION_DONE
-        response.async_set_states(matched_states=[state])
-        response.async_set_results(
-            success_results=[
-                intent.IntentResponseTarget(
-                    type=intent.IntentResponseTargetType.ENTITY,
-                    name=state.name,
-                    id=state.entity_id,
-                ),
-            ],
-        )
-        return response
+        return {
+            "success": True,
+            "control_targets": control_targets,
+        }
 
 
 class ClimateSetFanModeIntent(intent.IntentHandler):

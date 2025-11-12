@@ -1,25 +1,21 @@
-from enum import Enum
-from typing import Any
-import voluptuous as vol
 import logging
-from operator import attrgetter
-from homeassistant.helpers import entity_registry as er, intent
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.llm import CALENDAR_DOMAIN, SCRIPT_DOMAIN
-from homeassistant.util.json import JsonObjectType
 from decimal import Decimal
-from homeassistant.util import dt as dt_util, yaml as yaml_util
+from enum import Enum
+from operator import attrgetter
+from typing import Any
+
 from homeassistant.components.homeassistant import async_should_expose
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import intent
+from homeassistant.helpers.llm import CALENDAR_DOMAIN, SCRIPT_DOMAIN
+from homeassistant.util import dt as dt_util
+from homeassistant.util import yaml as yaml_util
+from homeassistant.util.json import JsonObjectType
 
-from homeassistant.helpers import (
-    area_registry as ar,
-    config_validation as cv,
-    device_registry as dr,
-    entity_registry as er,
-)
-
-from .houzzkit import get_config_entry, get_entities
-
+from .houzzkit import get_entities
 
 _LOGGER = logging.getLogger(__name__)
 

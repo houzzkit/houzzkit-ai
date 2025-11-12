@@ -1,23 +1,22 @@
+import logging
+import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-import re
 from typing import Any, Callable, Literal, get_args
-import voluptuous as vol
-import logging
-from homeassistant.components import cover, humidifier
-from homeassistant.components import fan
-from homeassistant.components import light
-from homeassistant.components import climate
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import entity_registry as er
-from homeassistant.core import State, callback
-from homeassistant.helpers import config_validation as cv, intent
-from homeassistant.const import (
-    ATTR_TEMPERATURE, SERVICE_TURN_ON, Platform, ATTR_ENTITY_ID,
-)
-from homeassistant.util.color import RGBColor
-from homeassistant.util.percentage import percentage_to_ordered_list_item
 
+import voluptuous as vol
+
+from homeassistant.components import climate, cover, fan, humidifier, light
+from homeassistant.const import (ATTR_ENTITY_ID, ATTR_TEMPERATURE,
+                                 SERVICE_TURN_ON, Platform)
+from homeassistant.core import State, callback
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import intent
+from homeassistant.util.color import RGBColor
+
+from .intent_common import match_intent_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -471,34 +470,28 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
     intent_type = "AdjustDeviceAttribute"
     description = "Set or adjust the numerical value of device attribute."
     slot_schema = {
-        vol.Required("domain"): vol.Any(*supported_domain_list),
         vol.Required("attribute"): vol.Any(*supported_attribute_list),
         vol.Required("delta"): intent.non_empty_string,
+        vol.Required("domain"): vol.Any(*supported_domain_list),
         vol.Optional("name"): cv.string,
         vol.Optional("area"): cv.string,
+        vol.Optional("except_area"): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional("floor"): cv.string,
         vol.Optional("preferred_area_id"): cv.string,
         vol.Optional("preferred_floor_id"): cv.string,
     } # type: ignore
     platforms = {Platform.LIGHT, Platform.FAN, Platform.COVER, Platform.CLIMATE, Platform.MEDIA_PLAYER}
 
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse | dict:
         """Handle the intent."""
         hass = intent_obj.hass
         slots = self.async_validate_slots(intent_obj.slots)
-
+        
         attribute: str = slots.get("attribute", {}).get("value")
         delta_raw: str = slots.get("delta", {}).get("value")
         domain: str = slots.get("domain", {}).get("value")
-        name: str | None  = slots.get("name", {}).get("value")
-        area_name: str | None = slots.get("area", {}).get("value")
-        floor_name: str | None = slots.get("floor", {}).get("value")
         
-        _LOGGER.info(
-            f"AdjustDeviceAttribute params: "
-            f"attribute={attribute} delta={delta_raw} domain={domain} "
-            f"name={name} area_name={area_name} floor_name={floor_name}"
-        )
+        _LOGGER.info(f"AdjustDeviceAttribute params: {slots}")
         
         delta = parse_delta(delta_raw)
         if not delta:
@@ -506,37 +499,17 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
                 f"invalid value: {delta_raw}"
             )
         
+        error_msg, candidate_entities = await match_intent_entities(intent_obj, slots)
+        if error_msg:
+            return error_msg
+        assert candidate_entities
         
         response = ExtIntentResponse(intent_obj.language, intent=intent_obj)
         success_results = []
-        
-        match_constraints = intent.MatchTargetsConstraints(
-            name=name,
-            area_name=area_name,
-            floor_name=floor_name,
-            domains={domain},
-            assistant=intent_obj.assistant,
-            single_target=False,
-        )
-        match_preferences = intent.MatchTargetsPreferences(
-            area_id=slots.get("preferred_area_id", {}).get("value"),
-            floor_id=slots.get("preferred_floor_id", {}).get("value"),
-        )
-        match_result = intent.async_match_targets(
-            hass, match_constraints, match_preferences
-        )
-        if not match_result.is_match:
-            raise intent.MatchFailedError(
-                result=match_result, constraints=match_constraints
-            )
-        assert match_result.states
-        for state in match_result.states:
-            _LOGGER.info(f"AdjustDeviceAttribute state: {state.as_dict_json}")
-            entity_id = state.entity_id
-            entity_registry = er.async_get(hass)
-            entity = entity_registry.async_get(entity_id)
-            if not entity:
-                continue
+        for item in candidate_entities:
+            state = item.state
+            entity = item.entity
+            _LOGGER.info(f"AdjustDeviceAttribute state: {item.state.as_dict_json}")
             
             error: str | None = None
             target = AdjustmentTarget()
