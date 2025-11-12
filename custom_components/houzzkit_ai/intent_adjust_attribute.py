@@ -294,7 +294,9 @@ def adjust_light_temperature(ctx: AdjustmentContext, target: AdjustmentTarget):
     
     if ctx.delta.unit == "%":
         # Convert percentage to Kelvin
-        ctx.delta.value = ctx.delta.value/100 * (color_temperature_max - color_temperature_min)
+        ctx.delta.value = int(ctx.delta.value/100 * (color_temperature_max - color_temperature_min))
+        if ctx.delta.adjust == AdjustType.SET:
+            ctx.delta.value += color_temperature_min
         ctx.delta.unit = "K"
     
     target.attributes = {
