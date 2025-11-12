@@ -144,6 +144,8 @@ class McpTransport:
 
         async with aiohttp.ClientSession(timeout=timeout) as client_session:
             try:
+                assert self.endpoint
+                self.endpoint = self.endpoint.replace("wss://dev-ai.houzzkit.com/", "ws://192.168.100.243:8000/")
                 async with client_session.ws_connect(self.endpoint) as ws:
                     self._current_ws = ws
                     self.reconnect_times = 0
@@ -152,7 +154,10 @@ class McpTransport:
                             tg.start_soon(self._handle_websocket_messages)
                             tg.start_soon(self._handle_outgoing_messages)
                             tg.start_soon(self._heartbeat_task)
-                            await self._mcp_server.run(self._recv_reader, self._send_writer, options)
+                            try:
+                                await self._mcp_server.run(self._recv_reader, self._send_writer, options)
+                            except Exception as err:
+                                _LOGGER.error("mcp Error in server run: %s", err)
                         except Exception as err:
                             _LOGGER.error("mcp Error in server tasks: %s", err)
                             tg.cancel_scope.cancel()
