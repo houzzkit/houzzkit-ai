@@ -29,7 +29,7 @@ from homeassistant.util.percentage import percentage_to_ordered_list_item
 from .houzzkit import get_entities
 from .intent_adjust_attribute import AdjustDeviceAttributeIntent
 from .intent_live_context import HouzzkitGetLiveContextIntent
-from .intent_turn import TurnDeviceOnIntent
+from .intent_turn import TurnDeviceOnIntent, TurnDeviceOffIntent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ async def async_setup_intents(hass: HomeAssistant):
     intent.async_register(hass, AdjustDeviceAttributeIntent())
     intent.async_register(hass, HouzzkitGetLiveContextIntent())
     intent.async_register(hass, TurnDeviceOnIntent())
+    intent.async_register(hass, TurnDeviceOffIntent())
 
 class ClimateSetHvacModeIntent(intent.IntentHandler):
     intent_type = "ClimateSetHvacMode"

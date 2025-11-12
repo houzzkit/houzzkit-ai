@@ -1,6 +1,7 @@
 import asyncio
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal, TypedDict
 import voluptuous as vol
 import logging
 from operator import attrgetter
@@ -86,26 +87,71 @@ from homeassistant.components.intent.timers import (
 
 _LOGGER = logging.getLogger(__name__)
 
+def get_entity_name(entity_entry: er.RegistryEntry) -> str:
+    if len(entity_entry.aliases) > 0:
+        return list(entity_entry.aliases)[0]
+    if entity_entry.name:
+        return entity_entry.name
+    
+    if entity_entry.name:
+        return entity_entry.name
+    return ""
 
+@dataclass
+class AreaInfo:
+    name: str
+    id: str
+
+def get_entity_area(hass: HomeAssistant, entity_entry: er.RegistryEntry) -> AreaInfo | None:
+    area_names = []
+    area_registry = ar.async_get(hass)
+    device_registry = dr.async_get(hass)
+    if entity_entry.area_id and (
+        area := area_registry.async_get_area(entity_entry.area_id)
+    ):
+        # Entity is in area
+        area_names.extend(area.aliases)
+        area_names.append(area.name)
+        if len(area_names) == 0:
+            return
+        return AreaInfo(id=entity_entry.area_id, name=area_names[0])
+    elif entity_entry.device_id and (
+        device := device_registry.async_get(entity_entry.device_id)
+    ):
+        # Check device area
+        if device.area_id and (
+            area := area_registry.async_get_area(device.area_id)
+        ):
+            area_names.extend(area.aliases)
+            area_names.append(area.name)
+            if len(area_names) == 0:
+                return
+            return AreaInfo(id=device.area_id, name=area_names[0])
+
+@dataclass
+class EntityInfo:
+    name: str
+    area: AreaInfo | None
+    state: State
+    entity: er.RegistryEntry
+    on_off: Literal["on", "off"]
     
-class TurnDeviceOnIntent(intent.IntentHandler):
-    intent_type = "TurnDeviceOn"
-    description = (
-        "Turns on/opens/presses a device or entity."
-    )
-    slot_schema = {
-        vol.Required("domain"): intent.non_empty_string,
-        vol.Optional("name"): cv.string,
-        vol.Optional("area"): cv.string,
-        vol.Optional("except_area"): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional("floor"): cv.string,
-        vol.Optional("preferred_area_id"): cv.string,
-        vol.Optional("preferred_floor_id"): cv.string,
-    } # type: ignore
+    @property
+    def area_name(self) -> str:
+        if self.area:
+            return self.area.name
+        return ""
     
+    @property
+    def area_id(self) -> str:
+        if self.area:
+            return self.area.id
+        return ""
+
+class TurnDeviceIntentBase(intent.IntentHandler):
     service_timeout = 3
 
-    async def async_handle(self, intent_obj: intent.Intent) -> JsonObjectType:
+    async def _async_handle(self, intent_obj: intent.Intent, service: Literal["turn_on", "turn_off"]) -> JsonObjectType:
         """Get the current state of exposed entities."""
         slots = self.async_validate_slots(intent_obj.slots)
         domain: str = slots.get("domain", {}).get("value")
@@ -113,37 +159,108 @@ class TurnDeviceOnIntent(intent.IntentHandler):
         area_name: str | None = slots.get("area", {}).get("value")
         floor_name: str | None = slots.get("floor", {}).get("value")
         except_area: list[str] | None = slots.get("except_area", {}).get("value")
+        preferred_area_id: str | None = slots.get("preferred_area_id", {}).get("value")
         
         _LOGGER.info(
             f"TurnDeviceOn params: slots={slots} "
         )
         
+        UNSPECIFIED = "unspecified"
+        filter_name = None if name == UNSPECIFIED else name
+        filter_area_name = None if area_name == UNSPECIFIED else area_name
+        
         hass = intent_obj.hass
         match_constraints = intent.MatchTargetsConstraints(
-            name=name,
-            area_name=area_name,
+            name=filter_name,
+            area_name=filter_area_name,
             floor_name=floor_name,
             domains={domain},
             assistant=intent_obj.assistant,
             single_target=False,
         )
-        match_preferences = intent.MatchTargetsPreferences(
-            area_id=slots.get("preferred_area_id", {}).get("value"),
-            floor_id=slots.get("preferred_floor_id", {}).get("value"),
-        )
+        
         match_result = intent.async_match_targets(
-            hass, match_constraints, match_preferences
+            hass, match_constraints
         )
         if not match_result.is_match:
             raise intent.MatchFailedError(
                 result=match_result, constraints=match_constraints
             )
         assert match_result.states
+        
+        # Filter out candidate targets.
+        candidate_entities: list[EntityInfo] = []
         for state in match_result.states:
-            await self.handle_match_target(intent_obj, state, "turn_on")
+            _LOGGER.info(f"TurnDeviceOn match target: {state}")
+            if state.state == "unavailable":
+                continue
+            
+            entity_registry = er.async_get(hass)
+            entity_entry = entity_registry.async_get(state.entity_id)
+            if not entity_entry:
+                continue
+            
+            entity_name = get_entity_name(entity_entry)
+            entity_area = get_entity_area(hass, entity_entry)
+            on_off = "off" if state.state == "off" else "on"
+            entity_info = EntityInfo(name=entity_name, area=entity_area, state=state, entity=entity_entry, on_off=on_off)
+            _LOGGER.info(f"TurnDeviceOn available target:{entity_info}")
+            candidate_entities.append(entity_info)
+            
+        if except_area:
+            # Remove entities in the excluded areas.
+            for item in candidate_entities.copy():
+                if item.area_name in except_area:
+                    candidate_entities.remove(item)
+                if preferred_area_id and item.area_id == preferred_area_id:
+                    preferred_area_id = None
+                    
+        if len(candidate_entities) == 0:
+            return {
+                "success": False,
+                "error": "No available devices found"
+            }
+        
+        # If multiple candidates and name is unspecified, let user to choose.
+        if not except_area and name == UNSPECIFIED:
+            preferred_candidate_entities = []
+            if preferred_area_id:
+                for item in candidate_entities:
+                    if item.area_id == preferred_area_id:
+                        preferred_candidate_entities.append(item)
+            if not preferred_candidate_entities:
+                # No preferred, need choose.
+                candidate_targets = []
+                entity_key_map = set() # for deduplication
+                for item in candidate_entities:
+                    entity_key = f"{item.area_name}-{item.name}"
+                    if entity_key not in entity_key_map:
+                        candidate_targets.append({"name": item.name, "area": item.area_name})
+                        entity_key_map.add(entity_key)
+                return {
+                    "success": False,
+                    "error": "Need to select one",
+                    "candidate_targets": candidate_targets
+                }
+            else:
+                # Operate entities in prefered area.
+                candidate_entities = preferred_candidate_entities
+        
+        # Execute operation.
+        control_targets = []
+        entity_key_map = set() # for deduplication
+        for item in candidate_entities:
+            _LOGGER.info(f"TurnDeviceOn operate target:{entity_info}")
+            await self.handle_match_target(intent_obj, item.state, service)
+            
+            entity_key = f"{item.area_name}-{item.name}"
+            if entity_key not in entity_key_map:
+                entity_key_map.add(entity_key)
+                control_targets.append({"name": item.name, "area": item.area_name})
 
         return {
             "success": True,
+            "control_targets": control_targets,
         }
 
     async def handle_match_target(self, intent_obj: intent.Intent, state: State, service: str):
@@ -253,3 +370,54 @@ class TurnDeviceOnIntent(intent.IntentHandler):
             task.cancel()
             await asyncio.wait({task}, timeout=5)
             raise
+        
+supported_domain_list = [
+    "light",
+    "switch",
+    "cover",
+    "fan",
+    "climate",
+    "humidifier",
+]
+        
+class TurnDeviceOnIntent(TurnDeviceIntentBase):
+    intent_type = "TurnDeviceOn"
+    description = (
+        "Turns on/opens/presses a device or entity."
+    )
+    slot_schema = {
+        vol.Required("domain"): vol.Any(*supported_domain_list),
+        vol.Optional("name"): cv.string,
+        vol.Optional("area"): cv.string,
+        vol.Optional("except_area"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("floor"): cv.string,
+        vol.Optional("preferred_area_id"): cv.string,
+        vol.Optional("preferred_floor_id"): cv.string,
+    } # type: ignore
+    
+    service_timeout = 3
+    
+    async def async_handle(self, intent_obj: intent.Intent) -> JsonObjectType:
+        """Get the current state of exposed entities."""
+        return await super()._async_handle(intent_obj, "turn_on")
+    
+class TurnDeviceOffIntent(TurnDeviceIntentBase):
+    intent_type = "TurnDeviceOff"
+    description = (
+        "Turns off/closes a device or entity."
+    )
+    slot_schema = {
+        vol.Required("domain"): vol.Any(*supported_domain_list),
+        vol.Optional("name"): cv.string,
+        vol.Optional("area"): cv.string,
+        vol.Optional("except_area"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional("floor"): cv.string,
+        vol.Optional("preferred_area_id"): cv.string,
+        vol.Optional("preferred_floor_id"): cv.string,
+    } # type: ignore
+    
+    service_timeout = 3
+    
+    async def async_handle(self, intent_obj: intent.Intent) -> JsonObjectType:
+        """Get the current state of exposed entities."""
+        return await super()._async_handle(intent_obj, "turn_off")
