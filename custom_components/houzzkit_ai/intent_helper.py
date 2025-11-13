@@ -10,15 +10,14 @@ from homeassistant.helpers import intent
 
 _LOGGER = logging.getLogger(__name__)
 
-def get_entity_name(entity_entry: er.RegistryEntry) -> str:
+def get_entity_name(entity_entry: er.RegistryEntry, state: State) -> str:
     if len(entity_entry.aliases) > 0:
         return list(entity_entry.aliases)[0]
-    if entity_entry.name:
-        return entity_entry.name
     
     if entity_entry.name:
         return entity_entry.name
-    return ""
+    
+    return state.name
 
 @dataclass
 class AreaInfo:
@@ -132,7 +131,7 @@ async def match_intent_entities(intent_obj: intent.Intent, slots: dict[str, Any]
         if not entity_entry:
             continue
         
-        entity_name = get_entity_name(entity_entry)
+        entity_name = get_entity_name(entity_entry, state)
         entity_area = get_entity_area(hass, entity_entry)
         on_off = "off" if state.state == "off" else "on"
         entity_info = EntityInfo(name=entity_name, area=entity_area, state=state, entity=entity_entry, on_off=on_off)
@@ -163,8 +162,15 @@ async def match_intent_entities(intent_obj: intent.Intent, slots: dict[str, Any]
         if len(preferred_candidate_entities) > 0:
             candidate_entities = preferred_candidate_entities
     
+    # Make the same area name and entity name, as single target.
+    name_key_set = set()
+    for item in candidate_entities:
+        name_key = f"{item.area_name}-{item.name}"
+        if name_key not in name_key_set:
+            name_key_set.add(name_key)
+                
     # If multiple candidates and name is unspecified, let user to choose.
-    if name is None and len(candidate_entities) > 1:
+    if len(name_key_set) > 1 and (name is None or area_name is None):
         candidate_targets = []
         entity_key_map = set() # for deduplication
         for item in candidate_entities:
