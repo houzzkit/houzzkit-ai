@@ -31,7 +31,7 @@ from .intent_adjust_attribute import AdjustDeviceAttributeIntent
 from .intent_live_context import HouzzkitGetLiveContextIntent
 from .intent_turn import TurnDeviceOnIntent, TurnDeviceOffIntent
 
-from .intent_common import match_intent_entities
+from .intent_helper import match_intent_entities
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ from homeassistant.helpers import intent
 from homeassistant.util.color import RGBColor
 from homeassistant.util.json import JsonObjectType, JsonValueType
 
-from .intent_common import match_intent_entities
+from .intent_helper import match_intent_entities
 
 _LOGGER = logging.getLogger(__name__)
 

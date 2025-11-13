@@ -145,7 +145,6 @@ class McpTransport:
         async with aiohttp.ClientSession(timeout=timeout) as client_session:
             try:
                 assert self.endpoint
-                self.endpoint = self.endpoint.replace("wss://dev-ai.houzzkit.com/", "ws://192.168.100.243:8000/")
                 async with client_session.ws_connect(self.endpoint) as ws:
                     self._current_ws = ws
                     self.reconnect_times = 0

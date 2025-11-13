@@ -23,7 +23,7 @@ from homeassistant.helpers import entity_registry as intent
 from homeassistant.helpers import intent
 from homeassistant.util.json import JsonObjectType
 
-from .intent_common import match_intent_entities
+from .intent_helper import match_intent_entities
 
 _LOGGER = logging.getLogger(__name__)
 
