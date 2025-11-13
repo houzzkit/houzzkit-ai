@@ -109,8 +109,9 @@ async def match_intent_entities(intent_obj: intent.Intent, slots: dict[str, Any]
         domains={domain},
         assistant=intent_obj.assistant,
         single_target=False,
+        allow_duplicate_names=True,
     )
-    
+    _LOGGER.info(f"Match intent constraints: {match_constraints}")
     match_result = intent.async_match_targets(
         hass, match_constraints
     )
