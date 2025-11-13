@@ -1,5 +1,8 @@
 {
   "name": "HOUZZkit AI",
-  "render_readme": true,
+  "content_in_root": false,
+  "zip_release": true,
+  "filename": "houzzkit_ai.zip",
+  "hide_default_branch": false,
   "homeassistant": "2025.9.0"
 }
