@@ -84,9 +84,22 @@ async def match_intent_entities(intent_obj: intent.Intent, slots: dict[str, Any]
         f"Match intent params: slots={slots} "
     )
     
-    UNSPECIFIED = "unspecified"
-    filter_name = None if name == UNSPECIFIED else name
-    filter_area_name = None if area_name == UNSPECIFIED else area_name
+    # In the exclude case, names must be specified.
+    if except_area:
+        if name is None:
+            name = "all"
+        if area_name is None:
+            area_name = "all"
+    
+    # Fix argument issues in special cases.
+    if name == "all" and area_name is None:
+        area_name = "all"
+    if area_name == "all" and name is None:
+        name = "all"
+    
+    # name: $name/"all"/None
+    filter_name = None if name == "all" else name
+    filter_area_name = None if area_name == "all" else area_name
     
     hass = intent_obj.hass
     match_constraints = intent.MatchTargetsConstraints(
@@ -110,7 +123,6 @@ async def match_intent_entities(intent_obj: intent.Intent, slots: dict[str, Any]
     # Filter out candidate targets.
     candidate_entities: list[EntityInfo] = []
     for state in match_result.states:
-        _LOGGER.info(f"Match intent match target: {state}")
         if state.state == "unavailable":
             continue
         
@@ -123,46 +135,46 @@ async def match_intent_entities(intent_obj: intent.Intent, slots: dict[str, Any]
         entity_area = get_entity_area(hass, entity_entry)
         on_off = "off" if state.state == "off" else "on"
         entity_info = EntityInfo(name=entity_name, area=entity_area, state=state, entity=entity_entry, on_off=on_off)
-        _LOGGER.info(f"Match intent available target:{entity_info}")
+        _LOGGER.info(f"Match intent available target: {entity_info}")
         candidate_entities.append(entity_info)
         
+    # Remove entities in the excluded areas.
     if except_area:
-        # Remove entities in the excluded areas.
         for item in candidate_entities.copy():
             if item.area_name in except_area:
                 candidate_entities.remove(item)
-            if preferred_area_id and item.area_id == preferred_area_id:
-                preferred_area_id = None
                 
+    # No any available.
     if len(candidate_entities) == 0:
         return {
             "success": False,
             "error": "No available devices found"
         }, None
     
-    # If multiple candidates and name is unspecified, let user to choose.
-    if not except_area and name == UNSPECIFIED:
-        preferred_candidate_entities = []
-        if preferred_area_id:
-            for item in candidate_entities:
-                if item.area_id == preferred_area_id:
-                    preferred_candidate_entities.append(item)
-        if not preferred_candidate_entities:
-            # No preferred, need choose.
-            candidate_targets = []
-            entity_key_map = set() # for deduplication
-            for item in candidate_entities:
-                entity_key = f"{item.area_name}-{item.name}"
-                if entity_key not in entity_key_map:
-                    candidate_targets.append({"name": item.name, "area": item.area_name})
-                    entity_key_map.add(entity_key)
-            return {
-                "success": False,
-                "error": "Need to select one",
-                "candidate_targets": candidate_targets
-            }, None
-        else:
-            # Operate entities in prefered area.
+    # Filter preferred.
+    preferred_candidate_entities = []
+    if area_name is None and preferred_area_id:
+        for item in candidate_entities:
+            if item.area_id == preferred_area_id:
+                preferred_candidate_entities.append(item)
+                _LOGGER.info(f"Match intent preferred target: area_name={area_name} entity={item}")
+                
+        if len(preferred_candidate_entities) > 0:
             candidate_entities = preferred_candidate_entities
     
+    # If multiple candidates and name is unspecified, let user to choose.
+    if name is None and len(candidate_entities) > 1:
+        candidate_targets = []
+        entity_key_map = set() # for deduplication
+        for item in candidate_entities:
+            entity_key = f"{item.area_name}-{item.name}"
+            if entity_key not in entity_key_map:
+                candidate_targets.append({"name": item.name, "area": item.area_name})
+                entity_key_map.add(entity_key)
+        return {
+            "success": False,
+            "error": "Need to select one",
+            "candidate_targets": candidate_targets
+        }, None
+        
     return None, candidate_entities

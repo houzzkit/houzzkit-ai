@@ -15,6 +15,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import intent
 from homeassistant.util.color import RGBColor
+from homeassistant.util.json import JsonObjectType, JsonValueType
 
 from .intent_common import match_intent_entities
 
@@ -58,19 +59,24 @@ class ExtIntentResponse(intent.IntentResponse):
         
         if entity_id not in self.entity_order:
             self.entity_order.append(entity_id)
+            
+    def states(self) -> tuple[list[JsonValueType], int]:
+        states = []
+        success_count = 0
+        for entity_id in self.entity_order:
+            state = self.entity_states[entity_id]
+            states.append(asdict(state))
+            if state.success:
+                success_count += 1
+        return states, success_count
         
     @callback
     def as_dict(self) -> dict[str, Any]:
         """Return a dictionary representation of an intent response."""
         response_dict = super().as_dict()
-        
-        states = []
-        for entity_id in self.entity_order:
-            state = self.entity_states[entity_id]
-            states.append(asdict(state))
-        
-        response_dict["states"] = states
+        response_dict["states"], _ = self.states()
         return response_dict
+
 
 class AdjustType(Enum):
     INCREASE = 1
@@ -482,7 +488,7 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
     } # type: ignore
     platforms = {Platform.LIGHT, Platform.FAN, Platform.COVER, Platform.CLIMATE, Platform.MEDIA_PLAYER}
 
-    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse | dict:
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse | JsonObjectType:
         """Handle the intent."""
         hass = intent_obj.hass
         slots = self.async_validate_slots(intent_obj.slots)
@@ -505,7 +511,6 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
         assert candidate_entities
         
         response = ExtIntentResponse(intent_obj.language, intent=intent_obj)
-        success_results = []
         for item in candidate_entities:
             state = item.state
             entity = item.entity
@@ -535,17 +540,9 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
                 error = str(e)
                 
             response.set_state(entity, target.attributes, error)
-            success_results.append(intent.IntentResponseTarget(
-                type=intent.IntentResponseTargetType.ENTITY,
-                name=state.name,
-                id=state.entity_id,
-            ))
-                    
 
-        if len(success_results) > 0:
-            response.response_type = intent.IntentResponseType.ACTION_DONE
-            response.success_results = success_results
-        else:
-            response.response_type = intent.IntentResponseType.ERROR
-            response.error_code = intent.IntentResponseErrorCode.NO_VALID_TARGETS
-        return response
+        states, success_count = response.states()
+        return {
+            "success_count": success_count,
+            "states": states,
+        }

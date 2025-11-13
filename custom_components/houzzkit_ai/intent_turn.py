@@ -178,7 +178,7 @@ class TurnDeviceOnIntent(TurnDeviceIntentBase):
         "Turns on/opens/presses a device or entity."
     )
     slot_schema = {
-        vol.Required("domain"): vol.Any(*supported_domain_list),
+        vol.Required("domain"): vol.Any("button", *supported_domain_list),
         vol.Optional("name"): cv.string,
         vol.Optional("area"): cv.string,
         vol.Optional("except_area"): vol.All(cv.ensure_list, [cv.string]),
