@@ -144,7 +144,21 @@ class TurnDeviceIntentBase(intent.IntentHandler):
                 f"Service {service} does not support entity {state.entity_id}"
             )
         
-        
+        # Fall back to homeassistant.turn_on/off
+        service_data: dict[str, Any] = {ATTR_ENTITY_ID: state.entity_id}
+                    
+        await self._run_then_background(
+            hass.async_create_task_internal(
+                hass.services.async_call(
+                    state.domain,
+                    service,
+                    service_data,
+                    context=intent_obj.context,
+                    blocking=True,
+                ),
+                f"intent_call_service_{state.domain}_{service}",
+            )
+        )
             
     async def _run_then_background(self, task: asyncio.Task[Any]) -> None:
         """Run task with timeout to (hopefully) catch validation errors.

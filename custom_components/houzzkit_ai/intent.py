@@ -113,7 +113,7 @@ class ClimateSetFanModeIntent(intent.IntentHandler):
         vol.Optional("floor"): intent.non_empty_string,
         vol.Optional("preferred_area_id"): cv.string,
         vol.Optional("preferred_floor_id"): cv.string,
-    }
+    } # type: ignore
     platforms = {Platform.CLIMATE}
 
     async def async_handle(self, intent_obj: intent.Intent):
@@ -203,7 +203,7 @@ class CreateAlarmClockIntent(intent.IntentHandler):
         vol.Required("alias"): cv.string,
         vol.Required("repeat"): vol.All(cv.ensure_list, [vol.In([REPEAT_EVERYDAY, REPEAT_WORKDAY])]),
         # vol.Required("speaker_id"): cv.string
-    }
+    } # type: ignore
 
     async def async_handle(self, intent_obj):
         """Handle the intent. """
@@ -269,7 +269,7 @@ class CreateCountdownAlarmClockIntent(intent.IntentHandler):
         ),
         vol.Required("alias"): cv.string,
         # vol.Required("speaker_id"): cv.string
-    }
+    } # type: ignore
 
     async def async_handle(self, intent_obj):
         """Handle the intent. """

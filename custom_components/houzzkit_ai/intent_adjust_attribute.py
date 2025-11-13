@@ -12,12 +12,11 @@ from homeassistant.const import (ATTR_ENTITY_ID, ATTR_TEMPERATURE,
 from homeassistant.core import State, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import intent
 from homeassistant.util.color import RGBColor
 from homeassistant.util.json import JsonObjectType, JsonValueType
 
-from .intent_helper import match_intent_entities
+from .intent_helper import EntityInfo, match_intent_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,13 +39,9 @@ class ExtIntentResponse(intent.IntentResponse):
     def create_default_state(self, name: str):
         return IntentEntityState(name=name, attrs={})
 
-    def set_state(self, entity: er.RegistryEntry, attrs: dict | None ={}, error: str | None = None):
-        entity_id = entity.entity_id
-        # Get the readable name.
-        if len(entity.aliases) > 0:
-            name = list(entity.aliases)[0]
-        else:
-            name = entity.name or ""
+    def set_state(self, entity_info: EntityInfo, attrs: dict | None ={}, error: str | None = None):
+        entity_id = entity_info.entity.id
+        name = entity_info.name
         state = self.entity_states.setdefault(
             entity_id, 
             self.create_default_state(name),
@@ -527,7 +522,6 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
         response = ExtIntentResponse(intent_obj.language, intent=intent_obj)
         for item in candidate_entities:
             state = item.state
-            entity = item.entity
             _LOGGER.info(f"AdjustDeviceAttribute state: {item.state.as_dict_json}")
             
             error: str | None = None
@@ -553,7 +547,7 @@ class AdjustDeviceAttributeIntent(intent.IntentHandler):
             except (intent.IntentHandleError, ServiceValidationError) as e:
                 error = str(e)
                 
-            response.set_state(entity, target.attributes, error)
+            response.set_state(item, target.attributes, error)
 
         states, success_count = response.states()
         return {
