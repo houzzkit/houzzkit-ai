@@ -123,6 +123,7 @@ class McpTransport:
                 device_id=None,
             )
             self._mcp_server = await self._create_server(context)
+            self._mcp_server.version = "2.0.1"
             options = await self.hass.async_add_executor_job(self._mcp_server.create_initialization_options)
 
             await self._create_streams()

@@ -27,6 +27,8 @@ from homeassistant.components.climate.const import (
 from homeassistant.util.percentage import percentage_to_ordered_list_item
 
 from .houzzkit import get_entities
+from .intent_adjust_attribute import AdjustDeviceAttributeIntent
+from .intent_live_context import HouzzkitGetLiveContextIntent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +39,8 @@ async def async_setup_intents(hass: HomeAssistant):
     intent.async_register(hass, ClimateSetFanModeIntent())
     intent.async_register(hass, CreateAlarmClockIntent())
     intent.async_register(hass, CreateCountdownAlarmClockIntent())
+    intent.async_register(hass, AdjustDeviceAttributeIntent())
+    intent.async_register(hass, HouzzkitGetLiveContextIntent())
 
 
 class ClimateSetHvacModeIntent(intent.IntentHandler):
@@ -44,6 +48,7 @@ class ClimateSetHvacModeIntent(intent.IntentHandler):
     description = "Sets the target hvac mode of a climate device or entity"
     slot_schema = {
         vol.Required(ATTR_HVAC_MODE): vol.Any(*HVAC_MODES),
+        vol.Required("domain"): vol.Any("climate"),
         vol.Optional("area"): intent.non_empty_string,
         vol.Optional("name"): intent.non_empty_string,
         vol.Optional("floor"): intent.non_empty_string,
@@ -118,6 +123,7 @@ class ClimateSetFanModeIntent(intent.IntentHandler):
     )
     slot_schema = {
         vol.Required(ATTR_FAN_MODE): vol.All(vol.Coerce(int), vol.Range(0, 100)),
+        vol.Required("domain"): vol.All("climate"),
         vol.Optional("area"): intent.non_empty_string,
         vol.Optional("name"): intent.non_empty_string,
         vol.Optional("floor"): intent.non_empty_string,
